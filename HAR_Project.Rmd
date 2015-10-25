@@ -1,0 +1,125 @@
+---
+title: "Human Activity Recognition"
+author: "Antonio Macedo"
+date: "Thursday, October 22, 2015"
+output: html_document
+---
+
+#Summary
+Fitness tracker are widely adopted, but their use is limited to quantifying activity levels.  
+In this study we will use data collected by multiple accelerometers to identify the quality of exercise.  
+The data was collected by 4 accelerometers placed in the following locations:  
+- Arm  
+- Forearm  
+- Belt  
+- Dumbbell  
+
+The 6 study participants performed arm curl exercises in 5 different ways:  
+- Class A - Exactly according to specification.  
+- Class B - Throwing the Elbow to the front.  
+- Class C - Lifting the Dumbbell only halfway.  
+- Class D - Lowering the Dumbbell only halfway.  
+- Class E - Throwing the Hips to the front.  
+
+Using machine learning techniques to create models that identify if a person is performing the exercise correctly or what type of error the person is making, so this models could be used as a "virtual coach".
+
+#Getting and Loading the Data
+The data was graciously provided by [Pontifical Catholic University of Rio de Janeiro](http://www.puc-rio.br/english/)
+and detailed information of their own study can be found at <http://groupware.les.inf.puc-rio.br/har>
+
+The training data for this project is available at: 
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data is available at: 
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+The following code downloads the files to the current working folder and loads the data.  
+```{r, cache=TRUE}
+url_train <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+url_test <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+
+download.file(url = url_train, destfile = 'pml-training.csv')
+download.file(url = url_test, destfile = 'pml-testing.csv')
+
+pml_data_raw <- read.csv(file = 'pml-training.csv', na.strings=c("NA","#DIV/0!",""))
+pml_test_raw <- read.csv(file = 'pml-testing.csv', na.strings=c("NA","#DIV/0!",""))
+
+```
+
+
+#Cleaning the Data
+First of all we will look at the proportion of NA values per column.
+```{r}
+sapply(pml_data_raw, function(y) sum(length(which(is.na(y))))/nrow(pml_data_raw) )
+```
+
+We see that there is a large number of columns that have more than 97% of NA values. We will start the data clean up by removing them.  
+There are also columns that represent row numbers, window number, time-stamps and other metadata attributes. We will also remove them.
+```{r}
+no_na_cols <- sapply(pml_data_raw, function(y) sum(length(which(is.na(y))))==0 )
+pml_data <- pml_data_raw[,no_na_cols]
+pml_data <- pml_data[,-c(1,3:7)]
+```
+
+
+#Spliting Training and Testing Data
+The testing data-set is meant to be used for the submission phase of this assignment.
+For cross validation purposes we will randomly split the "training" data-set into two blocks, train the model with one block then test it on the other block.
+```{r}
+library(caret)
+set.seed(7722)
+inTrain <- createDataPartition(y=pml_data$classe,  p=0.6, list=FALSE)
+
+pml_train <- pml_data[inTrain,]
+pml_test <- pml_data[-inTrain,]
+```
+
+#Regression Tree Model
+##Building the Model
+To train the tree model we will use the rpart method with "classe" as the outcome and all remaining columns as predictors with the training data block.
+```{r}
+library(rpart)
+modRpart <- rpart(classe ~ ., data=pml_train, method="class")
+```
+
+##Evaluating the Model
+To evaluate the model we run predictions on the testing data block then look at the confusion matrix.
+```{r}
+predRpart <- predict(modRpart, pml_test, type="class");
+cMatrix_Rpart <- confusionMatrix(predRpart,pml_test$classe)
+cMatrix_Rpart
+```
+The tree model has an out of sample accuracy of `r round(cMatrix_Rpart$overall['Accuracy'] *100,2)`% and an out of sample error rate of `r round((1-cMatrix_Rpart$overall['Accuracy']) *100,2)`.  
+
+#Random Forest Model
+##Building the Model
+To build the random forest model we will use the randomForest method with "classe" as the outcome and all remaining columns as predictors with the training data block.
+```{r}
+library(randomForest)
+modRf <- randomForest(classe~ ., data=pml_train)
+```
+
+##Evaluating the Model
+To evaluate the model we run predictions on the testing data block then look at the confusion matrix.
+```{r}
+predRf <- predict(modRf, pml_test);
+cMatrix_Rf <- confusionMatrix(predRf,pml_test$classe)
+cMatrix_Rf
+```
+The random forest model has an out of sample accuracy of `r round(cMatrix_Rf$overall['Accuracy'] *100,2)`% and an out of sample error rate of `r round((1-cMatrix_Rf$overall['Accuracy']) *100,2)`%.  
+
+
+#Conclusion
+It is clear that the random forest model is better than the tree model. But even with an accuracy rate of `r round(cMatrix_Rf$overall['Accuracy'] *100,2)`%, there are a few things to keep in mind.
+The distinction between classes C and D are the hardest to predict as they represent incomplete upper and lower movements, so practical applications I suggest to join them into a single "incomplete movement" class.  
+Also, the measurements change greatly between test subjects so I suggest that the study should include a larger number of test subjects with different gender, body types and skill levels. Bio metric data about the test subjects should be part of the data-set, so the model can generate better predictions across a wider range of subjects.
+For the project test submission I will use the random forest model.
+
+```{r}
+project_test <- predict(modRf, newdata=pml_test_raw)
+project_test
+```
+
+
